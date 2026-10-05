@@ -17,6 +17,17 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
+from config.views import (
+    AdminLoginView,
+    AdminLogoutView,
+    AdminTestView,
+    CsrfTokenView,
+)
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/auth/csrf/', CsrfTokenView.as_view(), name='auth-csrf'),
+    path('api/auth/login/', AdminLoginView.as_view(), name='auth-login'),
+    path('api/auth/logout/', AdminLogoutView.as_view(), name='auth-logout'),
+    path('api/auth/test/', AdminTestView.as_view(), name='auth-test'),
 ]
