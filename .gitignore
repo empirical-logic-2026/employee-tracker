@@ -37,3 +37,6 @@ htmlcov/
 # Secrets
 *.pem
 *.key
+
+# Client reference files
+docs/Employee_Onboarding_Template.xlsx
