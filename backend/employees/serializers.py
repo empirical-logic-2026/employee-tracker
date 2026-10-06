@@ -1,6 +1,8 @@
 from django.db import transaction
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
 
+from employees.authentication import authenticate_employee
 from employees.models import (
     Employee,
     EmployeeBankDetails,
@@ -11,6 +13,19 @@ from employees.models import (
     EmployeeEmergencyContact,
     EmployeeKYC,
 )
+
+
+class EmployeeLoginSerializer(serializers.Serializer):
+    employee_id = serializers.CharField()
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate(self, attrs):
+        user = authenticate_employee(attrs['employee_id'], attrs['password'])
+        if user is None:
+            raise AuthenticationFailed('Invalid employee credentials.')
+
+        attrs['user'] = user
+        return attrs
 
 
 class EmployeeKYCSerializer(serializers.ModelSerializer):
