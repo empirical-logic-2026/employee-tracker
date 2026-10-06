@@ -1,5 +1,6 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import generics
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -25,6 +26,27 @@ class EmployeeLoginView(APIView):
             'refresh': str(refresh),
             'access': str(refresh.access_token),
         })
+
+
+class EmployeeProfileView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee = get_object_or_404(
+            Employee.objects.select_related(
+                'kyc',
+                'bank_details',
+                'emergency_contact',
+                'education',
+                'business_card_details',
+                'document_checklist',
+                'declaration',
+            ),
+            user=request.user,
+        )
+        serializer = EmployeeSerializer(employee)
+        return Response(serializer.data)
 
 
 class EmployeeListCreateView(generics.ListCreateAPIView):
