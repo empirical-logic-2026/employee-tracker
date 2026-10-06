@@ -10,7 +10,13 @@ from employees.views import (
     EmployeeListCreateView,
     EmployeeLoginView,
     EmployeeProfileView,
+    EmployeeAssetDetailView,
+EmployeeAssetListCreateView,
+EmployeeMyAssetsView,
+EmployeeAssetDetailView,
+EmployeeAssetListCreateView,
 )
+
 
 app_name = 'employees'
 
@@ -28,4 +34,8 @@ urlpatterns = [
     ),
     path('', EmployeeListCreateView.as_view(), name='employee-list'),
     path('<int:pk>/', EmployeeDetailView.as_view(), name='employee-detail'),
+    path('assets/', EmployeeAssetListCreateView.as_view(), name='asset-list'),
+path('assets/<int:pk>/', EmployeeAssetDetailView.as_view(), name='asset-detail'),
+path('me/assets/', EmployeeMyAssetsView.as_view(), name='my-assets'),
+
 ]
