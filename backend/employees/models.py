@@ -1,6 +1,7 @@
 from django.conf import settings
-from django.db import models
+from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
+from django.db import models
 
 
 class Employee(models.Model):
@@ -75,6 +76,50 @@ class Employee(models.Model):
 
     def __str__(self):
         return f'{self.employee_id} - {self.full_name}'
+
+
+class LeaveApplication(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        APPROVED = 'approved', 'Approved'
+        REJECTED = 'rejected', 'Rejected'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name='leave_applications'
+    )
+    leave_type = models.CharField(max_length=50)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    number_of_days = models.PositiveIntegerField(editable=False)
+    reason = models.TextField()
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING
+    )
+    applied_date = models.DateTimeField(auto_now_add=True)
+    reviewed_date = models.DateTimeField(blank=True, null=True)
+    reviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name='reviewed_leave_applications',
+        blank=True,
+        null=True,
+    )
+    admin_remarks = models.TextField(blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.end_date < self.start_date:
+            raise ValidationError({'end_date': 'End date cannot be before start date.'})
+
+        self.number_of_days = (self.end_date - self.start_date).days + 1
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            kwargs['update_fields'] = set(update_fields) | {'number_of_days'}
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.employee.employee_id} - {self.leave_type} ({self.status})'
 
 
 class EmployeeKYC(models.Model):

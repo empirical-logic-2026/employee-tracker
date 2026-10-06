@@ -3,6 +3,7 @@ from datetime import date
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -16,6 +17,7 @@ from employees.models import (
     EmployeeEducation,
     EmployeeEmergencyContact,
     EmployeeKYC,
+    LeaveApplication,
 )
 
 
@@ -484,3 +486,243 @@ class EmployeeProfileAPITests(TestCase):
         response = self.client.get(self.profile_url)
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class LeaveManagementAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.employee_user = get_user_model().objects.create_user(
+            username='leave-employee',
+            password='employee-password',
+        )
+        self.employee = self.create_employee('EMP-LEAVE-001', self.employee_user)
+        self.other_employee_user = get_user_model().objects.create_user(
+            username='other-leave-employee',
+            password='employee-password',
+        )
+        self.other_employee = self.create_employee(
+            'EMP-LEAVE-002', self.other_employee_user
+        )
+        self.admin_user = get_user_model().objects.create_user(
+            username='leave-admin',
+            password='admin-password',
+            is_staff=True,
+        )
+        self.apply_url = '/api/employees/leave/apply/'
+        self.history_url = '/api/employees/leave/history/'
+        self.balance_url = '/api/employees/leave/balance/'
+        self.admin_list_url = '/api/employees/admin/leaves/'
+        self.payload = {
+            'leave_type': 'Annual',
+            'start_date': '2026-10-12',
+            'end_date': '2026-10-14',
+            'reason': 'Personal leave',
+        }
+        self.authenticate_as(self.employee_user)
+
+    def create_employee(self, employee_id, user):
+        return Employee.objects.create(
+            full_name='Taylor Employee',
+            fathers_spouses_name='Jordan Employee',
+            user=user,
+            date_of_birth=date(1990, 1, 15),
+            gender='Other',
+            nationality='Indian',
+            personal_mobile_number='9876543210',
+            personal_email=f'{employee_id.lower()}@example.com',
+            current_address='10 Example Street',
+            current_city='Bengaluru',
+            current_state='Karnataka',
+            current_pin_code='560011',
+            permanent_address_same_as_current=True,
+            employee_id=employee_id,
+            date_of_joining=date(2024, 4, 1),
+            designation='Analyst',
+            department='Finance',
+            employment_type='Full-time',
+            work_location='Bengaluru',
+            reporting_manager='Morgan Manager',
+            official_email=f'{employee_id.lower()}@company.example',
+        )
+
+    def authenticate_as(self, user):
+        access_token = RefreshToken.for_user(user).access_token
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f'Bearer {access_token}'
+        )
+
+    def create_leave(self, employee, **overrides):
+        values = {
+            'employee': employee,
+            'leave_type': 'Annual',
+            'start_date': date(2026, 10, 12),
+            'end_date': date(2026, 10, 14),
+            'reason': 'Personal leave',
+        }
+        values.update(overrides)
+        return LeaveApplication.objects.create(**values)
+
+    def test_employee_can_apply_and_days_are_calculated_on_backend(self):
+        response = self.client.post(
+            self.apply_url,
+            {
+                **self.payload,
+                'number_of_days': 99,
+                'status': LeaveApplication.Status.APPROVED,
+                'employee': self.other_employee.pk,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['employee'], self.employee.pk)
+        self.assertEqual(response.data['number_of_days'], 3)
+        self.assertEqual(response.data['status'], LeaveApplication.Status.PENDING)
+        self.assertIsNone(response.data['reviewed_date'])
+        self.assertIsNone(response.data['reviewer'])
+        self.assertEqual(
+            LeaveApplication.objects.get(pk=response.data['id']).employee,
+            self.employee,
+        )
+
+    def test_employee_cannot_apply_with_end_date_before_start_date(self):
+        response = self.client.post(
+            self.apply_url,
+            {
+                **self.payload,
+                'start_date': '2026-10-14',
+                'end_date': '2026-10-12',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('end_date', response.data)
+
+    def test_employee_can_only_view_own_history(self):
+        own_leave = self.create_leave(self.employee)
+        self.create_leave(
+            self.other_employee,
+            leave_type='Sick',
+            start_date=date(2026, 11, 2),
+            end_date=date(2026, 11, 2),
+        )
+
+        response = self.client.get(self.history_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['id'], own_leave.pk)
+        self.assertEqual(response.data[0]['employee_id'], self.employee.employee_id)
+
+    def test_employee_leave_balance_reports_status_and_type_progress(self):
+        self.create_leave(
+            self.employee,
+            status=LeaveApplication.Status.APPROVED,
+            reviewed_date=timezone.now(),
+            reviewer=self.admin_user,
+        )
+        self.create_leave(
+            self.employee,
+            leave_type='Sick',
+            start_date=date(2026, 11, 2),
+            end_date=date(2026, 11, 2),
+        )
+        self.create_leave(self.other_employee)
+
+        response = self.client.get(self.balance_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['application_counts']['approved'], 1)
+        self.assertEqual(response.data['application_counts']['pending'], 1)
+        self.assertEqual(response.data['day_counts']['approved'], 3)
+        self.assertEqual(response.data['day_counts']['pending'], 1)
+        self.assertIsNone(response.data['remaining_entitlement'])
+        self.assertEqual(
+            {item['leave_type'] for item in response.data['by_leave_type']},
+            {'Annual', 'Sick'},
+        )
+
+    def test_employee_cannot_access_admin_leave_list_or_review(self):
+        leave = self.create_leave(self.employee)
+
+        list_response = self.client.get(self.admin_list_url)
+        review_response = self.client.patch(
+            f'{self.admin_list_url}{leave.pk}/review/',
+            {'status': LeaveApplication.Status.APPROVED},
+            format='json',
+        )
+
+        self.assertEqual(list_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(review_response.status_code, status.HTTP_403_FORBIDDEN)
+        leave.refresh_from_db()
+        self.assertEqual(leave.status, LeaveApplication.Status.PENDING)
+
+    def test_admin_can_list_and_approve_or_reject_leave(self):
+        approved_leave = self.create_leave(self.employee)
+        rejected_leave = self.create_leave(
+            self.other_employee,
+            leave_type='Sick',
+            start_date=date(2026, 11, 2),
+            end_date=date(2026, 11, 2),
+        )
+        self.authenticate_as(self.admin_user)
+
+        list_response = self.client.get(self.admin_list_url)
+        approve_response = self.client.patch(
+            f'{self.admin_list_url}{approved_leave.pk}/review/',
+            {
+                'status': LeaveApplication.Status.APPROVED,
+                'admin_remarks': 'Approved.',
+            },
+            format='json',
+        )
+        reject_response = self.client.patch(
+            f'{self.admin_list_url}{rejected_leave.pk}/review/',
+            {
+                'status': LeaveApplication.Status.REJECTED,
+                'admin_remarks': 'Insufficient coverage.',
+            },
+            format='json',
+        )
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.data), 2)
+        self.assertEqual(approve_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(reject_response.status_code, status.HTTP_200_OK)
+        approved_leave.refresh_from_db()
+        rejected_leave.refresh_from_db()
+        self.assertEqual(approved_leave.status, LeaveApplication.Status.APPROVED)
+        self.assertEqual(approved_leave.reviewer, self.admin_user)
+        self.assertIsNotNone(approved_leave.reviewed_date)
+        self.assertEqual(approved_leave.admin_remarks, 'Approved.')
+        self.assertEqual(rejected_leave.status, LeaveApplication.Status.REJECTED)
+        self.assertEqual(rejected_leave.reviewer, self.admin_user)
+        self.assertIsNotNone(rejected_leave.reviewed_date)
+        self.assertEqual(
+            rejected_leave.admin_remarks, 'Insufficient coverage.'
+        )
+
+    def test_unauthenticated_employee_leave_request_is_rejected(self):
+        self.client.credentials()
+
+        response = self.client.get(self.history_url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_admin_cannot_review_already_reviewed_application(self):
+        leave = self.create_leave(
+            self.employee,
+            status=LeaveApplication.Status.APPROVED,
+            reviewed_date=timezone.now(),
+            reviewer=self.admin_user,
+        )
+        self.authenticate_as(self.admin_user)
+
+        response = self.client.patch(
+            f'{self.admin_list_url}{leave.pk}/review/',
+            {'status': LeaveApplication.Status.REJECTED},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
