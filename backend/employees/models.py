@@ -78,6 +78,55 @@ class Employee(models.Model):
         return f'{self.employee_id} - {self.full_name}'
 
 
+class EmployeeAsset(models.Model):
+    class AssetType(models.TextChoices):
+        LAPTOP = 'laptop', 'Laptop'
+        MONITOR = 'monitor', 'Monitor'
+        MOBILE = 'mobile', 'Mobile'
+        OTHER = 'other', 'Other'
+
+    class Status(models.TextChoices):
+        ASSIGNED = 'assigned', 'Assigned'
+        RETURNED = 'returned', 'Returned'
+
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name='assets',
+    )
+    asset_type = models.CharField(
+        max_length=20,
+        choices=AssetType.choices,
+    )
+    asset_name = models.CharField(max_length=255)
+    model_series = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name='Model / Series',
+    )
+    serial_number = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+    asset_tag = models.CharField(
+        max_length=100,
+        blank=True,
+    )
+    assigned_date = models.DateField()
+    returned_date = models.DateField(
+        blank=True,
+        null=True,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ASSIGNED,
+    )
+    remarks = models.TextField(blank=True)
+
+    def __str__(self):
+        return f'{self.asset_name} - {self.employee.employee_id}'
+
 class LeaveApplication(models.Model):
     class Status(models.TextChoices):
         PENDING = 'pending', 'Pending'

@@ -10,6 +10,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from employees.models import (
     Employee,
+    EmployeeAsset,
     EmployeeBankDetails,
     EmployeeBusinessCardDetails,
     EmployeeDeclaration,
@@ -726,3 +727,222 @@ class LeaveManagementAPITests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+class EmployeeAssetAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        self.admin = get_user_model().objects.create_user(
+            username='asset-admin',
+            password='AdminPass123',
+            is_staff=True,
+            is_superuser=True,
+        )
+
+        self.employee = Employee.objects.create(
+            full_name='Asset Test Employee',
+            preferred_short_name='Asset Test',
+            fathers_spouses_name='Test Parent',
+            date_of_birth='1995-01-01',
+            gender='Male',
+            marital_status='Single',
+            blood_group='O+',
+            nationality='Indian',
+            personal_mobile_number='9876543210',
+            personal_email='asset.employee@example.com',
+            current_address='Test Address',
+            current_city='Mysore',
+            current_state='Karnataka',
+            current_pin_code='570001',
+            permanent_address_same_as_current=True,
+            employee_id='EMP-ASSET-001',
+            date_of_joining='2026-10-01',
+            designation='Software Developer',
+            department='IT',
+            employment_type='Full Time',
+            work_location='Mysore',
+            reporting_manager='Test Manager',
+            official_email='asset.employee@company.com',
+        )
+
+        self.client.force_authenticate(user=self.admin)
+
+        self.asset_url = '/api/employees/assets/'
+
+    def test_admin_can_create_asset(self):
+        response = self.client.post(
+            self.asset_url,
+            {
+                'employee': self.employee.id,
+                'asset_type': 'laptop',
+                'asset_name': 'Dell Laptop',
+                'model_series': 'Latitude 5450',
+                'serial_number': 'DL-123456',
+                'asset_tag': 'AST-001',
+                'assigned_date': '2026-10-06',
+                'status': 'assigned',
+                'remarks': 'Company laptop',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['asset_name'], 'Dell Laptop')
+        self.assertEqual(response.data['model_series'], 'Latitude 5450')
+
+    def test_admin_can_list_assets(self):
+        EmployeeAsset.objects.create(
+            employee=self.employee,
+            asset_type='laptop',
+            asset_name='Dell Laptop',
+            model_series='Latitude 5450',
+            serial_number='DL-123456',
+            asset_tag='AST-001',
+            assigned_date='2026-10-06',
+        )
+
+        response = self.client.get(self.asset_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+
+    def test_admin_can_filter_assets_by_employee(self):
+        EmployeeAsset.objects.create(
+            employee=self.employee,
+            asset_type='laptop',
+            asset_name='Dell Laptop',
+            assigned_date='2026-10-06',
+        )
+
+        response = self.client.get(
+            self.asset_url,
+            {'employee_id': self.employee.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(
+            response.data[0]['employee'],
+            self.employee.id,
+        )
+
+    def test_admin_can_filter_assets_by_type(self):
+        EmployeeAsset.objects.create(
+            employee=self.employee,
+            asset_type='laptop',
+            asset_name='Dell Laptop',
+            assigned_date='2026-10-06',
+        )
+
+        EmployeeAsset.objects.create(
+            employee=self.employee,
+            asset_type='monitor',
+            asset_name='Dell Monitor',
+            assigned_date='2026-10-06',
+        )
+
+        response = self.client.get(
+            self.asset_url,
+            {'asset_type': 'laptop'},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(
+            response.data[0]['asset_type'],
+            'laptop',
+        )
+
+    def test_admin_can_filter_assets_by_status(self):
+        EmployeeAsset.objects.create(
+            employee=self.employee,
+            asset_type='laptop',
+            asset_name='Dell Laptop',
+            assigned_date='2026-10-06',
+            status='assigned',
+        )
+
+        EmployeeAsset.objects.create(
+            employee=self.employee,
+            asset_type='monitor',
+            asset_name='Dell Monitor',
+            assigned_date='2026-10-06',
+            status='returned',
+            returned_date='2026-10-10',
+        )
+
+        response = self.client.get(
+            self.asset_url,
+            {'status': 'assigned'},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(
+            response.data[0]['status'],
+            'assigned',
+        )
+
+    def test_admin_can_update_asset(self):
+        asset = EmployeeAsset.objects.create(
+            employee=self.employee,
+            asset_type='laptop',
+            asset_name='Dell Laptop',
+            model_series='Latitude 5450',
+            assigned_date='2026-10-06',
+        )
+
+        response = self.client.patch(
+            f'{self.asset_url}{asset.id}/',
+            {
+                'model_series': 'Latitude 5550',
+                'serial_number': 'NEW-SERIAL-001',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        asset.refresh_from_db()
+
+        self.assertEqual(asset.model_series, 'Latitude 5550')
+        self.assertEqual(asset.serial_number, 'NEW-SERIAL-001')
+
+    def test_returned_asset_requires_returned_date(self):
+        response = self.client.post(
+            self.asset_url,
+            {
+                'employee': self.employee.id,
+                'asset_type': 'laptop',
+                'asset_name': 'Dell Laptop',
+                'assigned_date': '2026-10-06',
+                'status': 'returned',
+            },
+            format='json',
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertIn('returned_date', response.data)
+
+    def test_returned_date_cannot_be_before_assigned_date(self):
+        response = self.client.post(
+            self.asset_url,
+            {
+                'employee': self.employee.id,
+                'asset_type': 'laptop',
+                'asset_name': 'Dell Laptop',
+                'assigned_date': '2026-10-10',
+                'returned_date': '2026-10-05',
+                'status': 'returned',
+            },
+            format='json',
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertIn('returned_date', response.data)

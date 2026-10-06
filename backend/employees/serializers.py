@@ -13,8 +13,20 @@ from employees.models import (
     EmployeeEmergencyContact,
     EmployeeKYC,
     LeaveApplication,
+    EmployeeAsset,
 )
-
+from employees.models import (
+    Employee,
+    EmployeeAsset,
+    EmployeeBankDetails,
+    EmployeeBusinessCardDetails,
+    EmployeeDeclaration,
+    EmployeeDocumentChecklist,
+    EmployeeEducation,
+    EmployeeEmergencyContact,
+    EmployeeKYC,
+    EmployeeAsset,
+)
 
 class EmployeeLoginSerializer(serializers.Serializer):
     employee_id = serializers.CharField()
@@ -143,6 +155,38 @@ class EmployeeDeclarationSerializer(serializers.ModelSerializer):
         model = EmployeeDeclaration
         exclude = ('employee',)
 
+class EmployeeAssetSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmployeeAsset
+        fields = '__all__'
+        read_only_fields = ('id',)
+
+    def validate(self, attrs):
+        assigned_date = attrs.get(
+            'assigned_date',
+            getattr(self.instance, 'assigned_date', None),
+        )
+        returned_date = attrs.get(
+            'returned_date',
+            getattr(self.instance, 'returned_date', None),
+        )
+
+        if returned_date and assigned_date and returned_date < assigned_date:
+            raise serializers.ValidationError({
+                'returned_date': 'Returned date cannot be before assigned date.'
+            })
+
+        status = attrs.get(
+            'status',
+            getattr(self.instance, 'status', EmployeeAsset.Status.ASSIGNED),
+        )
+
+        if status == EmployeeAsset.Status.RETURNED and not returned_date:
+            raise serializers.ValidationError({
+                'returned_date': 'Returned date is required when an asset is returned.'
+            })
+
+        return attrs
 
 class EmployeeSerializer(serializers.ModelSerializer):
     kyc = EmployeeKYCSerializer(required=False, default=None)
@@ -156,6 +200,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
         required=False, default=None
     )
     declaration = EmployeeDeclarationSerializer(required=False, default=None)
+    assets = EmployeeAssetSerializer(
+    many=True,
+    required=False,
+)
 
     related_serializers = {
         'kyc': (EmployeeKYC, EmployeeKYCSerializer),

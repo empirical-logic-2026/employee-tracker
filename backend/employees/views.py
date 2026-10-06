@@ -8,15 +8,79 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken
+from employees.models import Employee, EmployeeAsset
+from employees.models import Employee, EmployeeAsset
+from employees.serializers import EmployeeAssetSerializer
 
 from employees.models import Employee, LeaveApplication
 from employees.serializers import (
+    EmployeeAssetSerializer,
     EmployeeLoginSerializer,
     EmployeeSerializer,
     LeaveApplicationSerializer,
     LeaveReviewSerializer,
 )
 
+class EmployeeAssetListCreateView(generics.ListCreateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAdminUser]
+    serializer_class = EmployeeAssetSerializer
+
+    def get_queryset(self):
+        queryset = EmployeeAsset.objects.select_related('employee').all()
+
+        employee_id = self.request.query_params.get('employee_id')
+        asset_type = self.request.query_params.get('asset_type')
+        status = self.request.query_params.get('status')
+
+        if employee_id:
+            queryset = queryset.filter(employee_id=employee_id)
+
+        if asset_type:
+            queryset = queryset.filter(asset_type=asset_type)
+
+        if status:
+            queryset = queryset.filter(status=status)
+
+        return queryset
+
+
+class EmployeeAssetDetailView(generics.RetrieveUpdateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAdminUser]
+    queryset = EmployeeAsset.objects.select_related('employee')
+    serializer_class = EmployeeAssetSerializer
+
+
+class EmployeeAssetDetailView(generics.RetrieveUpdateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAdminUser]
+    serializer_class = EmployeeAssetSerializer
+
+    def get_queryset(self):
+        return EmployeeAsset.objects.select_related('employee').all()
+
+
+class EmployeeMyAssetsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee = get_object_or_404(
+            Employee,
+            user=request.user,
+        )
+
+        assets = EmployeeAsset.objects.filter(
+            employee=employee
+        ).order_by('-assigned_date')
+
+        serializer = EmployeeAssetSerializer(
+            assets,
+            many=True,
+        )
+
+        return Response(serializer.data)
 
 class EmployeeLoginView(APIView):
     authentication_classes = []
