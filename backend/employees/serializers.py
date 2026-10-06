@@ -12,6 +12,7 @@ from employees.models import (
     EmployeeEducation,
     EmployeeEmergencyContact,
     EmployeeKYC,
+    LeaveApplication,
 )
 
 
@@ -26,6 +27,79 @@ class EmployeeLoginSerializer(serializers.Serializer):
 
         attrs['user'] = user
         return attrs
+
+
+class LeaveApplicationSerializer(serializers.ModelSerializer):
+    employee_id = serializers.CharField(
+        source='employee.employee_id', read_only=True
+    )
+    employee_name = serializers.CharField(
+        source='employee.full_name', read_only=True
+    )
+
+    class Meta:
+        model = LeaveApplication
+        fields = (
+            'id',
+            'employee',
+            'employee_id',
+            'employee_name',
+            'leave_type',
+            'start_date',
+            'end_date',
+            'number_of_days',
+            'reason',
+            'status',
+            'applied_date',
+            'reviewed_date',
+            'reviewer',
+            'admin_remarks',
+        )
+        read_only_fields = (
+            'id',
+            'employee',
+            'employee_id',
+            'employee_name',
+            'number_of_days',
+            'status',
+            'applied_date',
+            'reviewed_date',
+            'reviewer',
+            'admin_remarks',
+        )
+
+    def validate(self, attrs):
+        start_date = attrs.get(
+            'start_date', self.instance.start_date if self.instance else None
+        )
+        end_date = attrs.get(
+            'end_date', self.instance.end_date if self.instance else None
+        )
+        if start_date is not None and end_date is not None and end_date < start_date:
+            raise serializers.ValidationError({
+                'end_date': 'End date cannot be before start date.'
+            })
+        return attrs
+
+
+class LeaveReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LeaveApplication
+        fields = ('status', 'admin_remarks')
+
+    def validate_status(self, value):
+        if value not in (
+            LeaveApplication.Status.APPROVED,
+            LeaveApplication.Status.REJECTED,
+        ):
+            raise serializers.ValidationError(
+                'A leave application can only be approved or rejected.'
+            )
+        if self.instance.status != LeaveApplication.Status.PENDING:
+            raise serializers.ValidationError(
+                'Only pending leave applications can be reviewed.'
+            )
+        return value
 
 
 class EmployeeKYCSerializer(serializers.ModelSerializer):
