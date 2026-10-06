@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.core.validators import RegexValidator
 
@@ -10,6 +11,13 @@ class Employee(models.Model):
     fathers_spouses_name = models.CharField(
         max_length=255, verbose_name="Father's / Spouse's Name"
     )
+    user = models.OneToOneField(
+    settings.AUTH_USER_MODEL,
+    on_delete=models.CASCADE,
+    related_name='employee_profile',
+    null=True,
+    blank=True,
+)
     date_of_birth = models.DateField(verbose_name='Date of Birth')
     gender = models.CharField(max_length=50, verbose_name='Gender')
     marital_status = models.CharField(

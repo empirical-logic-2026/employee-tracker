@@ -260,3 +260,88 @@ class EmployeeAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['employee_id'], 'EMP-API-001')
+
+
+class EmployeeAuthenticationAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.login_url = '/api/employees/auth/login/'
+        self.password = 'employee-test-password'
+        self.user = get_user_model().objects.create_user(
+            username='employee-auth-user',
+            password=self.password,
+        )
+        self.employee = self.create_employee(
+            employee_id='EMP-AUTH-001',
+            user=self.user,
+        )
+
+    def create_employee(self, employee_id, user=None):
+        return Employee.objects.create(
+            full_name='Taylor Employee',
+            fathers_spouses_name='Jordan Employee',
+            user=user,
+            date_of_birth=date(1990, 1, 15),
+            gender='Other',
+            nationality='Indian',
+            personal_mobile_number='9876543210',
+            personal_email='taylor@example.com',
+            current_address='10 Example Street',
+            current_city='Bengaluru',
+            current_state='Karnataka',
+            current_pin_code='560011',
+            permanent_address_same_as_current=True,
+            employee_id=employee_id,
+            date_of_joining=date(2024, 4, 1),
+            designation='Analyst',
+            department='Finance',
+            employment_type='Full-time',
+            work_location='Bengaluru',
+            reporting_manager='Morgan Manager',
+            official_email='taylor@company.example',
+        )
+
+    def login(self, employee_id='EMP-AUTH-001', password=None):
+        return self.client.post(
+            self.login_url,
+            {
+                'employee_id': employee_id,
+                'password': self.password if password is None else password,
+            },
+            format='json',
+        )
+
+    def test_employee_can_login_and_receive_jwt_tokens(self):
+        response = self.login()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+        self.assertTrue(response.data['access'])
+        self.assertTrue(response.data['refresh'])
+
+    def test_login_rejects_unknown_employee_id(self):
+        response = self.login(employee_id='EMP-UNKNOWN')
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_login_rejects_invalid_password(self):
+        response = self.login(password='wrong-password')
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_login_rejects_inactive_user(self):
+        self.user.is_active = False
+        self.user.save(update_fields=['is_active'])
+
+        response = self.login()
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_login_rejects_employee_without_linked_user(self):
+        self.employee.user = None
+        self.employee.save(update_fields=['user'])
+
+        response = self.login()
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
