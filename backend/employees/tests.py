@@ -7,7 +7,16 @@ from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from employees.models import Employee, EmployeeBankDetails, EmployeeKYC
+from employees.models import (
+    Employee,
+    EmployeeBankDetails,
+    EmployeeBusinessCardDetails,
+    EmployeeDeclaration,
+    EmployeeDocumentChecklist,
+    EmployeeEducation,
+    EmployeeEmergencyContact,
+    EmployeeKYC,
+)
 
 
 class EmployeeModelTests(TestCase):
@@ -345,3 +354,133 @@ class EmployeeAuthenticationAPITests(TestCase):
         response = self.login()
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class EmployeeProfileAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.profile_url = '/api/employees/me/'
+        self.user = get_user_model().objects.create_user(
+            username='employee-profile-user',
+            password='employee-test-password',
+        )
+        self.employee = self.create_employee('EMP-PROFILE-001', self.user)
+        self.other_user = get_user_model().objects.create_user(
+            username='other-employee-profile-user',
+            password='employee-test-password',
+        )
+        self.other_employee = self.create_employee(
+            'EMP-PROFILE-002', self.other_user
+        )
+        access_token = RefreshToken.for_user(self.user).access_token
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f'Bearer {access_token}'
+        )
+
+    def create_employee(self, employee_id, user):
+        return Employee.objects.create(
+            full_name='Taylor Employee',
+            fathers_spouses_name='Jordan Employee',
+            user=user,
+            date_of_birth=date(1990, 1, 15),
+            gender='Other',
+            nationality='Indian',
+            personal_mobile_number='9876543210',
+            personal_email='taylor@example.com',
+            current_address='10 Example Street',
+            current_city='Bengaluru',
+            current_state='Karnataka',
+            current_pin_code='560011',
+            permanent_address_same_as_current=True,
+            employee_id=employee_id,
+            date_of_joining=date(2024, 4, 1),
+            designation='Analyst',
+            department='Finance',
+            employment_type='Full-time',
+            work_location='Bengaluru',
+            reporting_manager='Morgan Manager',
+            official_email=f'{employee_id.lower()}@company.example',
+        )
+
+    def test_employee_can_view_own_complete_profile(self):
+        EmployeeKYC.objects.create(
+            employee=self.employee,
+            pan='ABCDE1234F',
+            name_as_per_pan='Taylor Employee',
+            aadhaar_number='123456789012',
+            name_as_per_aadhaar='Taylor Employee',
+        )
+        EmployeeBankDetails.objects.create(
+            employee=self.employee,
+            account_holder_name='Taylor Employee',
+            bank_name='Example Bank',
+            branch='Bengaluru',
+            account_number='1234567890',
+            account_type='Savings',
+            ifsc_code='ABCD0123456',
+        )
+        EmployeeEmergencyContact.objects.create(
+            employee=self.employee,
+            contact_name='Jordan Employee',
+            relationship='Spouse',
+            contact_mobile_number='9876543211',
+        )
+        EmployeeEducation.objects.create(
+            employee=self.employee,
+            highest_qualification='Bachelors',
+        )
+        EmployeeBusinessCardDetails.objects.create(employee=self.employee)
+        EmployeeDocumentChecklist.objects.create(
+            employee=self.employee,
+            pan_card_copy='Received',
+            aadhaar_card_copy='Received',
+            passport_size_photograph='Received',
+            cancelled_cheque_bank_letter='Received',
+            education_certificates='Received',
+        )
+        EmployeeDeclaration.objects.create(
+            employee=self.employee,
+            declaration_confirmed=True,
+            date_of_submission=date(2024, 4, 1),
+        )
+
+        response = self.client.get(self.profile_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['id'], self.employee.pk)
+        self.assertEqual(response.data['employee_id'], 'EMP-PROFILE-001')
+        self.assertEqual(response.data['kyc']['pan'], 'ABCDE1234F')
+        self.assertEqual(response.data['bank_details']['bank_name'], 'Example Bank')
+        self.assertEqual(
+            response.data['emergency_contact']['contact_name'], 'Jordan Employee'
+        )
+        self.assertEqual(response.data['education']['highest_qualification'], 'Bachelors')
+        self.assertIn('business_card_details', response.data)
+        self.assertEqual(response.data['document_checklist']['pan_card_copy'], 'Received')
+        self.assertTrue(response.data['declaration']['declaration_confirmed'])
+
+    def test_unauthenticated_request_is_rejected(self):
+        self.client.credentials()
+
+        response = self.client.get(self.profile_url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_employee_cannot_access_another_profile_using_url_id(self):
+        response = self.client.get(f'{self.profile_url}{self.other_employee.pk}/')
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_user_without_employee_profile_is_handled_safely(self):
+        user_without_profile = get_user_model().objects.create_user(
+            username='user-without-employee-profile',
+            password='employee-test-password',
+        )
+        access_token = RefreshToken.for_user(user_without_profile).access_token
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f'Bearer {access_token}'
+        )
+
+        response = self.client.get(self.profile_url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
